@@ -65,10 +65,23 @@ def _load_default_dataframes() -> dict[str, pd.DataFrame]:
     }
 
 
+def _blank_dataframes() -> dict[str, pd.DataFrame]:
+    """Field names stay visible (so it's clear what each row is for) but every
+    value is empty -- this is the app's starting state, so the first thing a
+    POC audience sees is a genuinely blank template, not sample numbers."""
+    info_fields = ["report_title", "report_subtitle", "company", "date", "prepared_by"]
+    return {
+        "Info": pd.DataFrame({"Field": info_fields, "Value": [""] * len(info_fields)}),
+        "KPIs": pd.DataFrame({"Metric": pd.Series(dtype="str"), "Value": pd.Series(dtype="str")}),
+        "Highlights": pd.DataFrame({"Highlight": pd.Series(dtype="str")}),
+        "Chart": pd.DataFrame({"Category": pd.Series(dtype="str"), "Value": pd.Series(dtype="float")}),
+    }
+
+
 if "sd_dataframes" not in st.session_state:
-    st.session_state.sd_dataframes = _load_default_dataframes()
+    st.session_state.sd_dataframes = _blank_dataframes()
 if "sd_chart_title" not in st.session_state:
-    st.session_state.sd_chart_title = "Revenue by Region ($K)"
+    st.session_state.sd_chart_title = ""
 if "sd_generated_pptx" not in st.session_state:
     st.session_state.sd_generated_pptx = None
 if "sd_fullscreen" not in st.session_state:
@@ -118,7 +131,16 @@ if not st.session_state.sd_fullscreen:
     with st.container(border=True):
         st.markdown("**Excel Data Source**")
 
-        uploaded = st.file_uploader("Replace with your own workbook (optional)", type=["xlsx"])
+        col_upload, col_sample = st.columns([3, 1])
+        with col_upload:
+            uploaded = st.file_uploader("Replace with your own workbook (optional)", type=["xlsx"])
+        with col_sample:
+            st.write("")  # vertical alignment spacer
+            if st.button("Load Sample Data", use_container_width=True):
+                st.session_state.sd_dataframes = _load_default_dataframes()
+                st.session_state.sd_chart_title = "Revenue by Region ($K)"
+                st.rerun()
+
         if uploaded is not None:
             try:
                 st.session_state.sd_dataframes = {
@@ -150,7 +172,7 @@ if not st.session_state.sd_fullscreen:
                 st.session_state.sd_dataframes["Chart"], num_rows="dynamic", use_container_width=True, key="editor_chart"
             )
 
-    col_update, col_download, _ = st.columns([1, 1, 3])
+    col_update, col_download, col_reset = st.columns([1, 1, 1])
     with col_update:
         if st.button("🔄 Update PPT", type="primary", use_container_width=True):
             data = _dataframes_to_deck_data()
@@ -167,6 +189,12 @@ if not st.session_state.sd_fullscreen:
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             use_container_width=True,
         )
+    with col_reset:
+        if st.button("🧹 Reset to Blank", use_container_width=True):
+            st.session_state.sd_dataframes = _blank_dataframes()
+            st.session_state.sd_chart_title = ""
+            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), _dataframes_to_deck_data())
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------

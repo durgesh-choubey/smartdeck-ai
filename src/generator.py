@@ -164,11 +164,20 @@ def generate_pptx(template_path: str, data: DeckData) -> bytes:
                         elif marker == "{{highlights_list}}":
                             _set_run_text_multiline(shape.text_frame, data.highlights_list_text())
 
-            if shape.has_chart and data.chart_categories:
-                chart_data = CategoryChartData()
-                chart_data.categories = data.chart_categories
-                chart_data.add_series("Revenue ($K)", tuple(data.chart_values))
-                shape.chart.replace_data(chart_data)
+            if shape.has_chart:
+                if data.chart_categories:
+                    chart_data = CategoryChartData()
+                    chart_data.categories = data.chart_categories
+                    chart_data.add_series("Revenue ($K)", tuple(data.chart_values))
+                    shape.chart.replace_data(chart_data)
+                else:
+                    # Blank state: replace the template's sample numbers with an
+                    # explicit "no data yet" placeholder rather than leaving the
+                    # old sample chart in place.
+                    chart_data = CategoryChartData()
+                    chart_data.categories = ["No data yet"]
+                    chart_data.add_series("Revenue ($K)", (0,))
+                    shape.chart.replace_data(chart_data)
 
     buffer = io.BytesIO()
     prs.save(buffer)
