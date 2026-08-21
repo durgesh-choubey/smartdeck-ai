@@ -86,6 +86,12 @@ if "sd_generated_pptx" not in st.session_state:
     st.session_state.sd_generated_pptx = None
 if "sd_fullscreen" not in st.session_state:
     st.session_state.sd_fullscreen = False
+if "sd_preview_data" not in st.session_state:
+    # What the Preview section renders. Deliberately NOT recomputed from the
+    # live editors on every rerun -- it only changes when Update PPT (or
+    # Reset to Blank) is clicked, so the preview always matches the actual
+    # generated .pptx rather than showing in-progress, not-yet-applied edits.
+    st.session_state.sd_preview_data = DeckData()
 
 
 def _dataframes_to_deck_data() -> DeckData:
@@ -177,11 +183,13 @@ if not st.session_state.sd_fullscreen:
         if st.button("🔄 Update PPT", type="primary", use_container_width=True):
             data = _dataframes_to_deck_data()
             st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), data)
+            st.session_state.sd_preview_data = data
             st.success("PPT updated from the current data.")
     with col_download:
         if st.session_state.sd_generated_pptx is None:
-            # Always have something downloadable, even before the first click.
-            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), _dataframes_to_deck_data())
+            # Always have something downloadable, even before the first click --
+            # matches the blank preview, not whatever's mid-edit in the tabs above.
+            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
         st.download_button(
             "⬇ Download PPT",
             data=st.session_state.sd_generated_pptx,
@@ -193,20 +201,24 @@ if not st.session_state.sd_fullscreen:
         if st.button("🧹 Reset to Blank", use_container_width=True):
             st.session_state.sd_dataframes = _blank_dataframes()
             st.session_state.sd_chart_title = ""
-            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), _dataframes_to_deck_data())
+            st.session_state.sd_preview_data = DeckData()
+            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
             st.rerun()
 
 
 # ---------------------------------------------------------------------------
-# Preview -- always shown; full width in Fullscreen Preview mode
+# Preview -- only reflects the last generated PPT (see sd_preview_data above),
+# not whatever's currently being edited in the tabs. Full width in Fullscreen
+# Preview mode.
 # ---------------------------------------------------------------------------
 if st.session_state.sd_generated_pptx is None:
-    st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), _dataframes_to_deck_data())
+    st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
 
-data = _dataframes_to_deck_data()
+data = st.session_state.sd_preview_data
+is_blank = not (data.info or data.kpis or data.highlights or data.chart_categories)
 
 st.markdown("### Preview")
-st.caption("Reflects exactly what's in the generated .pptx. Download the file to view/edit it in PowerPoint.")
+st.caption("Reflects the last generated .pptx -- click Update PPT to refresh it with your current edits.")
 
 
 def _slide_card(label: str, title: str, body: str) -> None:
@@ -222,7 +234,9 @@ def _slide_card(label: str, title: str, body: str) -> None:
     )
 
 
-if st.session_state.sd_fullscreen:
+if is_blank:
+    st.info("Nothing generated yet. Fill in the data above (or click **Load Sample Data**) and click **Update PPT** to see a preview here.")
+elif st.session_state.sd_fullscreen:
     _slide_card("Slide 1 · Title", data.info.get("report_title", ""), data.info.get("report_subtitle", ""))
     _slide_card("Slide 2 · Key Metrics", "Key Metrics", data.kpi_list_text().replace("\n", "<br>"))
     _slide_card("Slide 3 · Highlights", "Highlights", data.highlights_list_text().replace("\n", "<br>"))
