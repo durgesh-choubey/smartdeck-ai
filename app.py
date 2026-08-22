@@ -233,13 +233,18 @@ if not st.session_state.sd_fullscreen:
 # Preview mode.
 # ---------------------------------------------------------------------------
 data = st.session_state.sd_preview_data
-is_blank = not (data.info or data.kpis or data.highlights or data.chart_categories)
+has_info_content = any(str(v).strip() for v in data.info.values())
+has_kpi_content = any(str(v).strip() for _, v in data.kpis)
+has_highlight_content = any(str(h).strip() for h in data.highlights)
+is_blank = not (has_info_content or has_kpi_content or has_highlight_content or data.chart_categories)
 
 st.markdown("### Preview")
 st.caption("Reflects the last generated .pptx -- click Update PPT to refresh it with your current edits.")
 
 
 def _slide_card(label: str, title: str, body: str) -> None:
+    title = title.strip() or "<span style='color:#A0A0A0;'>(not set)</span>"
+    body = body.strip() or "<span style='color:#A0A0A0;'>(not set)</span>"
     st.markdown(
         f"""
         <div class="sd-slide-card">
