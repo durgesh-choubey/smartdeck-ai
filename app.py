@@ -82,8 +82,6 @@ if "sd_dataframes" not in st.session_state:
     st.session_state.sd_dataframes = _blank_dataframes()
 if "sd_chart_title" not in st.session_state:
     st.session_state.sd_chart_title = ""
-if "sd_generated_pptx" not in st.session_state:
-    st.session_state.sd_generated_pptx = None
 if "sd_fullscreen" not in st.session_state:
     st.session_state.sd_fullscreen = False
 if "sd_preview_data" not in st.session_state:
@@ -92,6 +90,23 @@ if "sd_preview_data" not in st.session_state:
     # Reset to Blank) is clicked, so the preview always matches the actual
     # generated .pptx rather than showing in-progress, not-yet-applied edits.
     st.session_state.sd_preview_data = DeckData()
+if "sd_version" not in st.session_state:
+    # Bumped on every Update/Reset. Used as part of the download button's
+    # widget key so Streamlit treats it as a brand-new widget each time the
+    # underlying data changes, rather than reusing a previous widget
+    # instance that could otherwise serve a stale cached file.
+    st.session_state.sd_version = 0
+if "sd_data_version" not in st.session_state:
+    # Bumped whenever sd_dataframes is set PROGRAMMATICALLY (upload, Load
+    # Sample Data, Reset to Blank) rather than via direct user edits. This
+    # is essential: st.data_editor widgets remember their own committed
+    # state once a `key` is set, and silently ignore a new dataframe passed
+    # in on a later rerun -- worse, they hand the OLD content straight back,
+    # overwriting the fresh data you just tried to load. Folding this
+    # counter into each editor's `key=` forces a genuinely new widget
+    # instance whenever we set data from outside the widget, so the new
+    # data actually shows up (and doesn't get silently reverted).
+    st.session_state.sd_data_version = 0
 
 
 def _dataframes_to_deck_data() -> DeckData:
@@ -145,6 +160,7 @@ if not st.session_state.sd_fullscreen:
             if st.button("Load Sample Data", use_container_width=True):
                 st.session_state.sd_dataframes = _load_default_dataframes()
                 st.session_state.sd_chart_title = "Revenue by Region ($K)"
+                st.session_state.sd_data_version += 1
                 st.rerun()
 
         if uploaded is not None:
@@ -155,54 +171,59 @@ if not st.session_state.sd_fullscreen:
                     "Highlights": pd.read_excel(uploaded, sheet_name="Highlights"),
                     "Chart": pd.read_excel(uploaded, sheet_name="Chart", skiprows=2),
                 }
+                st.session_state.sd_data_version += 1
                 st.success("Workbook loaded. Review the tabs below, then click Update PPT.")
             except Exception as exc:
                 st.error(f"Couldn't read that workbook -- make sure it has Info/KPIs/Highlights/Chart tabs. ({exc})")
 
+        v = st.session_state.sd_data_version
         tab_info, tab_kpis, tab_highlights, tab_chart = st.tabs(["Info", "KPIs", "Highlights", "Chart"])
         with tab_info:
             st.session_state.sd_dataframes["Info"] = st.data_editor(
-                st.session_state.sd_dataframes["Info"], num_rows="fixed", use_container_width=True, key="editor_info"
+                st.session_state.sd_dataframes["Info"], num_rows="fixed", use_container_width=True, key=f"editor_info_{v}"
             )
         with tab_kpis:
             st.session_state.sd_dataframes["KPIs"] = st.data_editor(
-                st.session_state.sd_dataframes["KPIs"], num_rows="dynamic", use_container_width=True, key="editor_kpis"
+                st.session_state.sd_dataframes["KPIs"], num_rows="dynamic", use_container_width=True, key=f"editor_kpis_{v}"
             )
         with tab_highlights:
             st.session_state.sd_dataframes["Highlights"] = st.data_editor(
-                st.session_state.sd_dataframes["Highlights"], num_rows="dynamic", use_container_width=True, key="editor_highlights"
+                st.session_state.sd_dataframes["Highlights"], num_rows="dynamic", use_container_width=True, key=f"editor_highlights_{v}"
             )
         with tab_chart:
-            st.session_state.sd_chart_title = st.text_input("Chart title", value=st.session_state.sd_chart_title)
+            st.session_state.sd_chart_title = st.text_input("Chart title", value=st.session_state.sd_chart_title, key=f"chart_title_{v}")
             st.session_state.sd_dataframes["Chart"] = st.data_editor(
-                st.session_state.sd_dataframes["Chart"], num_rows="dynamic", use_container_width=True, key="editor_chart"
+                st.session_state.sd_dataframes["Chart"], num_rows="dynamic", use_container_width=True, key=f"editor_chart_{v}"
             )
 
     col_update, col_download, col_reset = st.columns([1, 1, 1])
     with col_update:
         if st.button("🔄 Update PPT", type="primary", use_container_width=True):
             data = _dataframes_to_deck_data()
-            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), data)
             st.session_state.sd_preview_data = data
+            st.session_state.sd_version += 1
             st.success("PPT updated from the current data.")
     with col_download:
-        if st.session_state.sd_generated_pptx is None:
-            # Always have something downloadable, even before the first click --
-            # matches the blank preview, not whatever's mid-edit in the tabs above.
-            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
+        # Always regenerated fresh, right here, directly from sd_preview_data --
+        # the exact same source of truth the Preview section below uses. No
+        # "only if None" shortcut and no reliance on a value set earlier in a
+        # previous run, so the two can never drift apart.
+        current_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
         st.download_button(
             "⬇ Download PPT",
-            data=st.session_state.sd_generated_pptx,
+            data=current_pptx,
             file_name="smartdeck_report.pptx",
             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             use_container_width=True,
+            key=f"download_btn_v{st.session_state.sd_version}",
         )
     with col_reset:
         if st.button("🧹 Reset to Blank", use_container_width=True):
             st.session_state.sd_dataframes = _blank_dataframes()
             st.session_state.sd_chart_title = ""
             st.session_state.sd_preview_data = DeckData()
-            st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
+            st.session_state.sd_version += 1
+            st.session_state.sd_data_version += 1
             st.rerun()
 
 
@@ -211,9 +232,6 @@ if not st.session_state.sd_fullscreen:
 # not whatever's currently being edited in the tabs. Full width in Fullscreen
 # Preview mode.
 # ---------------------------------------------------------------------------
-if st.session_state.sd_generated_pptx is None:
-    st.session_state.sd_generated_pptx = generate_pptx(str(TEMPLATE_PATH), st.session_state.sd_preview_data)
-
 data = st.session_state.sd_preview_data
 is_blank = not (data.info or data.kpis or data.highlights or data.chart_categories)
 
